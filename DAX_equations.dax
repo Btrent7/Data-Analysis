@@ -15,7 +15,27 @@ MAX ORDRQTY =
 
   
 -- -- -- -- -- -- -- -- -- -- -- -- -- 
-        --- Forecast Measures ---
+      --- Forecast Growth % ---
+-- -- -- -- -- -- -- -- -- -- -- -- -- 
+AVG% DIFF = 
+VAR diff23 = IF([CY_2023] + [CY_2022] <> 0, MIN(([CY_2023] - [CY_2022]) / ([CY_2023] + [CY_2022]), 1), 0)
+VAR diff24 = IF([CY_2024] + [CY_2023] <> 0, MIN(([CY_2024] - [CY_2023]) / ([CY_2024] + [CY_2023]), 1), 0)
+VAR diff25 = IF([CY_2025] + [CY_2024] <> 0, MIN(([CY_2025] - [CY_2024]) / ([CY_2025] + [CY_2024]), 1), 0)
+VAR CurrMonth = MONTH(TODAY())
+
+RETURN
+IF( 
+    [CY_2025] + [CY_2024] = 0, 0,
+    IF(
+        SalesTable[calendarMonth] < CurrMonth,
+        MAX((diff23 + (diff24) + (diff25)) / 3, -1),
+        MAX((diff23 + (3*diff24)) / 4, -1)
+))
+
+
+  
+-- -- -- -- -- -- -- -- -- -- -- -- -- 
+      --- Forecast w/ Products ---
 -- -- -- -- -- -- -- -- -- -- -- -- -- 
 2026 FORECAST = 
 VAR SumSales =
@@ -34,9 +54,7 @@ VAR CategoryAdj = SWITCH (
         )
 RETURN
     IF (
-        [2025 PRJ. FINISH] = 0
-            || SalesTable[VNDID] = "TGI05"
-            || SalesTable[VNDID] = "",
+        [2025 PRJ. FINISH] = 0 || SalesTable[VNDID] = "TGI05" || SalesTable[VNDID] = "",
         0,
         CategoryAdj
     )
