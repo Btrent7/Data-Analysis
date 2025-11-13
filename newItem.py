@@ -25,14 +25,26 @@ def markup(category_code, tpp_value):
 # ----- Begin Part Number Creation Program -----
 # --  --  --  --  --  --  --  --  --  --  --  --  
 
-from listPrice import markup # import function from above
 import openpyxl as op
+from listPrice import markup
 from datetime import date
 import sys
+import pyodbc
+import pandas as pd
+
+#SQL Server Connection
+connection = pyodbc.connect(
+    'DRIVER={SQL Server};'
+    'SERVER=Server-LOCAL;'
+    'DATABASE=dbo.server;'
+    'Trusted_Connection=yes;'
+)
+print("Connected!")
+
 
 # Excel File Path
-newPart_form = "C:/Users/NewPartNumber/NewPartNumber_Form.xlsx"
-newPart_table = "C:/Users/NewPartNumber/NewPartNumber_Table.xlsx"
+newPart_form = "C:/Users/btrent/NewPartNumber_Form.xlsx"
+newPart_table = "C:/Users/btrent/NewPartNumber_Table.xlsx"
 
 
 #Load Form Workbook (openpyxl)
@@ -46,10 +58,57 @@ vnd_id    = form["B3"].value.upper().strip()
 sku       = str(form["B4"].value).strip()
 detail    = form["B5"].value.strip()
 tpp       = float(form["B10"].value)
-cat_code  = form["B11"].value
+cat_desc  = form["B11"].value
 site      = form["B12"].value.upper()
 request   = form["B13"].value
 prod_grp  = form["B14"].value
+
+
+#SQL Query
+query = f"""
+DECLARE @Vendor_ID VARCHAR(10) = '{vnd_id}';
+DECLARE @Item_Desc VARCHAR(50) = '%{cat_desc}%'
+;
+
+WITH RANKS AS (
+    SELECT ITMID, PRDCTG,
+        RANK() OVER(PARTITION BY PRDCTG ORDER BY ITMID) AS RANK_NUM
+    FROM DCSCIM
+    WHERE VNDID = @Vendor_ID AND ITMDESC LIKE @Item_Desc
+    GROUP BY ITMID, PRDCTG
+),
+RANK_1 AS (
+    SELECT *
+    FROM RANKS
+    WHERE RANK_NUM = 1
+),
+COUNTS AS (
+    SELECT TOP 1 COUNT(*) COUNTS, PRDCTG
+    FROM DCSCIM
+    WHERE VNDID = @Vendor_ID AND ITMDESC LIKE @Item_Desc
+    GROUP BY PRDCTG
+    ORDER BY COUNTS DESC
+),
+FINAL AS (
+    SELECT ITMID, C.PRDCTG, COUNTS
+    FROM COUNTS C
+    INNER JOIN RANK_1 R ON C.PRDCTG = R.PRDCTG
+)
+SELECT *
+FROM FINAL
+;
+"""
+
+
+#Read SQL in DataFrame 
+sql_query = pd.read_sql(query, connection)
+
+cat_code = str(sql_query['PRDCTG'].iloc[0])
+itmid = str(sql_query['ITMID'].iloc[0])
+
+print(f'''
+{cat_code}''')
+print(itmid)
 
 
 #Date Variable
@@ -66,7 +125,8 @@ list_price = markup(cat_code, tpp)
 if list_price is None:
     sys.exit()
 else:
-    print(f"""Form accessed, markup applied: {today}""")
+    print(f"""
+Form accessed, markup applied: {today}""")
 
 
 #Load Table Workbook (openpyxl)
