@@ -35,24 +35,24 @@ import pandas as pd
 #SQL Server Connection
 connection = pyodbc.connect(
     'DRIVER={SQL Server};'
-    'SERVER=Server-LOCAL;'
-    'DATABASE=dbo.server;'
+    'SERVER=Server-DevDB01.Rasconet.Local;'
+    'DATABASE=SYSCOMP;'
     'Trusted_Connection=yes;'
 )
 print("Connected!")
 
 
 # Excel File Path
-newPart_form = "C:/Users/btrent/NewPartNumber_Form.xlsx"
-newPart_table = "C:/Users/btrent/NewPartNumber_Table.xlsx"
+newPart_form = r"C:\Users\btrent\OneDrive - The Reliable Automatic Sprinkler Co., Inc\Data Analysis\New Part Number\NewPartNumber_Form.xlsx"
+newPart_table = r"C:\Users\btrent\OneDrive - The Reliable Automatic Sprinkler Co., Inc\Data Analysis\New Part Number\NewPartNumber_Table.xlsx"
 
 
-#Load Form Workbook (openpyxl)
+# Load Form Workbook (openpyxl)
 wb_form = op.load_workbook(newPart_form)
 form = wb_form["newPart"]
 
 
-#Form Variables
+# Part Number Variables Defined
 vnd_name  = form["B2"].value.strip()
 vnd_id    = form["B3"].value.upper().strip()
 sku       = str(form["B4"].value).strip()
@@ -64,7 +64,61 @@ request   = form["B13"].value
 prod_grp  = form["B14"].value
 
 
-#SQL Query
+
+
+## --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ##
+# SQL Test Query for duplicates in the sytem using Vendor SKU ...
+## --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ##
+
+# SQL Query Template
+test_query = f"""
+DECLARE @SKU varchar(50) = '%{sku}%'
+
+SELECT 
+	ITMID, 
+	ITMDESC
+FROM DCSCIM
+WHERE ITMDESC LIKE @SKU and ITMID LIKE '699%'
+ORDER BY ITMID
+;
+"""
+
+
+# Read Test SQL in DataFrame 
+dup_sql_query = pd.read_sql(test_query, connection)
+
+duplicate_test = pd.DataFrame(dup_sql_query)
+
+
+# Build a list of duplicate ITMID
+dup_list = (
+    duplicate_test["ITMID"]
+    .dropna()
+    .astype(str)        # ensure string type
+    .str.strip()        # remove whitespace
+    .str.zfill(10)      # left-pad to 10 digits if needed
+    .tolist()
+)
+
+
+# Decision: stop if duplicates were found, else continue
+if dup_list:
+    print(f"""
+          {duplicate_test}
+
+          Duplicate part(s) detected: 
+          {dup_list}""")
+    sys.exit(1)  # or 'return' if you're inside a function
+else:
+    print("No duplicates found!")
+
+## --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ##
+# For Items already in the system, STOP script. Otherwise continue...
+## --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- --- ##
+
+
+
+# SQL Query Item Template
 query = f"""
 DECLARE @Vendor_ID VARCHAR(10) = '{vnd_id}';
 DECLARE @Item_Desc VARCHAR(50) = '%{cat_desc}%'
@@ -100,26 +154,28 @@ FROM FINAL
 """
 
 
-#Read SQL in DataFrame 
+# Read SQL in DataFrame 
 sql_query = pd.read_sql(query, connection)
 
 cat_code = str(sql_query['PRDCTG'].iloc[0])
+
 itmid = str(sql_query['ITMID'].iloc[0])
 
 print(f'''
+Template Item:
 {cat_code}''')
 print(itmid)
 
 
-#Date Variable
+# Creation Date
 today = date.today()
 
 
-#Item Description
+# Item Description
 item_descr = (f"{vnd_name},#{sku},{detail}").upper()
 
 
-#List Price Function
+# List Price Function
 list_price = markup(cat_code, tpp)
 
 if list_price is None:
@@ -129,27 +185,27 @@ else:
 Form accessed, markup applied: {today}""")
 
 
-#Load Table Workbook (openpyxl)
+# Load Table Workbook (openpyxl)
 wb_table = op.load_workbook(newPart_table)
 table = wb_table["699_Table"]
 
 
-#Select Next Blank Row in Table
+# Select Next Blank Row in Table
 next_row = 1
 while table.cell(row=next_row, column=1).value is not None:
     next_row += 1
 
 
-#Select Previous Row (for previous part number)
+# Select Previous Row (for previous part number)
 prev_pn_cell = table.cell(row= next_row - 1, column= 1).value
 previous_pn = int(prev_pn_cell)
 
 
-#Create New Part Number
+# Create New Part Number
 new_pn = previous_pn + 1
 
 
-#Fill Next Blank Row on Table
+# Fill Next Blank Row on Table
 table.cell(row = next_row, column = 1,  value = new_pn)
 table.cell(row = next_row, column = 2,  value = sku)
 table.cell(row = next_row, column = 3,  value = item_descr)
@@ -164,8 +220,10 @@ wb_table.save(newPart_table)
 wb_table.close()
 
 
-#Print in Terminal for Data Entry
+# Print in Terminal for Data Entry & Email Script
 print(f"""
+Done!     
+
 New PN:   {new_pn}
 VNDID:    {vnd_id}
 Item:     {item_descr}
@@ -175,4 +233,6 @@ Request:  {request}
 Site:     {site}
 
 Prod Grp: {prod_grp}
+
+Thanks, 
 """)
